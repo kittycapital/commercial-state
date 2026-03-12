@@ -18,7 +18,6 @@ import json
 import time
 import subprocess
 import sys
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -26,43 +25,61 @@ from pathlib import Path
 # 설정
 # ──────────────────────────────────────────────
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://new.land.naver.com/",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
-}
-
-# ── API 엔드포인트 (new.land.naver.com — 데스크탑 버전) ──
-# m.land.naver.com은 모바일 버전이고, 해외 IP 차단이 더 심함
-# new.land.naver.com/api 가 더 안정적
-API_BASE = "https://new.land.naver.com/api"
-
 # 매물유형: SG(상가), SMS(사무실), DDDGG(건물), JWJT(공장/창고), LND(토지)
 DEFAULT_TYPES = "SG:SMS:DDDGG:JWJT:LND"
 
 # 거래유형: A1(매매), B1(전세), B2(월세)
 DEFAULT_TRADE = "A1"
 
-# API 요청 간격 (초) — 너무 빠르면 차단됨
-REQUEST_DELAY = 2.0
+# API 요청 간격 (초) — 429 방지
+REQUEST_DELAY = 3.0
 
-# 최대 페이지 (한 지역당)
-MAX_PAGES = 5
-PAGE_SIZE = 20
+# 429 에러 시 대기 시간 (초)
+RETRY_DELAY = 30
+
+# 최대 재시도 횟수
+MAX_RETRIES = 3
 
 # ──────────────────────────────────────────────
-# 지역 좌표 데이터
+# 세션 생성 (쿠키 유지 = 차단 방지)
+# ──────────────────────────────────────────────
+
+def create_session():
+    """네이버 부동산 페이지 방문 → 쿠키 획득 → 세션 리턴"""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "ko-KR,ko;q=0.9",
+    })
+
+    # 먼저 메인 페이지 방문해서 쿠키 받기
+    print("🌐 네이버 부동산 접속 중 (쿠키 획득)...", end=" ")
+    try:
+        res = session.get("https://m.land.naver.com/", timeout=10)
+        print(f"✅ 상태: {res.status_code}")
+    except Exception as e:
+        print(f"⚠ 접속 실패: {e}")
+        print("   → 인터넷 연결 또는 한국 IP 확인 필요")
+        return None
+
+    # API 호출용 헤더 추가
+    session.headers.update({
+        "Referer": "https://m.land.naver.com/",
+        "Accept": "*/*",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+    })
+
+    return session
+
+
+# ──────────────────────────────────────────────
+# 지역 좌표
 # ──────────────────────────────────────────────
 
 REGIONS = {
@@ -144,9 +161,6 @@ REGIONS = {
 # ──────────────────────────────────────────────
 
 def parse_price(s: str) -> int:
-    """네이버 가격 문자열 → 만원 정수
-    예: '1억 5,000' → 15000, '8,500' → 8500
-    """
     if not s:
         return 0
     s = s.replace(",", "").replace(" ", "").strip()
@@ -160,62 +174,10 @@ def parse_price(s: str) -> int:
     return total
 
 
-def fetch_articles(coords: dict, rlet_types: str = DEFAULT_TYPES,
-                   trade_type: str = DEFAULT_TRADE) -> list:
-    """특정 좌표 범위의 매물 목록 조회"""
-    all_items = []
+def fetch_articles(session, coords, rlet_types=DEFAULT_TYPES, trade_type=DEFAULT_TRADE):
+    """매물 목록 조회 — 429 시 자동 대기 후 재시도"""
 
-    for page in range(1, MAX_PAGES + 1):
-        params = {
-            "rletTpCd": rlet_types,
-            "tradTpCd": trade_type,
-            "z": "14",
-            "lat": str(coords["lat"]),
-            "lon": str(coords["lon"]),
-            "btm": str(coords["btm"]),
-            "lft": str(coords["lft"]),
-            "top": str(coords["top"]),
-            "rgt": str(coords["rgt"]),
-            "spcMin": "",
-            "spcMax": "",
-            "showR0": "",
-            "page": str(page),
-        }
-        try:
-            res = requests.get(
-                f"{API_BASE}/articles",
-                params=params,
-                headers=HEADERS,
-                timeout=15,
-            )
-            res.raise_for_status()
-            data = res.json()
-            items = data.get("body", [])
-
-            if not items:
-                break
-
-            all_items.extend(items)
-
-            # 다음 페이지 없으면 종료
-            if len(items) < PAGE_SIZE:
-                break
-
-            time.sleep(0.5)
-
-        except requests.exceptions.ConnectionError:
-            # new.land 안 되면 m.land로 폴백
-            return fetch_articles_mobile(coords, rlet_types, trade_type)
-        except Exception as e:
-            print(f"\n    ⚠ API 오류 (page {page}): {e}")
-            break
-
-    return all_items
-
-
-def fetch_articles_mobile(coords: dict, rlet_types: str, trade_type: str) -> list:
-    """모바일 API 폴백 (m.land.naver.com)"""
-    mobile_headers = {**HEADERS, "Referer": "https://m.land.naver.com/"}
+    url = "https://m.land.naver.com/cluster/ajax/articleList"
     params = {
         "rletTpCd": rlet_types,
         "tradTpCd": trade_type,
@@ -230,24 +192,38 @@ def fetch_articles_mobile(coords: dict, rlet_types: str, trade_type: str) -> lis
         "spcMax": "",
         "showR0": "",
     }
-    try:
-        res = requests.get(
-            "https://m.land.naver.com/cluster/ajax/articleList",
-            params=params,
-            headers=mobile_headers,
-            timeout=15,
-        )
-        res.raise_for_status()
-        return res.json().get("body", [])
-    except Exception as e:
-        print(f"\n    ⚠ 모바일 API도 실패: {e}")
-        return []
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            res = session.get(url, params=params, timeout=15)
+
+            if res.status_code == 200:
+                data = res.json()
+                return data.get("body", [])
+
+            elif res.status_code == 429:
+                wait = RETRY_DELAY * attempt
+                print(f"\n    ⏳ 429 차단 — {wait}초 대기 후 재시도 ({attempt}/{MAX_RETRIES})", end="", flush=True)
+                time.sleep(wait)
+                continue
+
+            else:
+                print(f"\n    ⚠ HTTP {res.status_code}", end="")
+                return []
+
+        except Exception as e:
+            print(f"\n    ⚠ 오류: {e}", end="")
+            if attempt < MAX_RETRIES:
+                time.sleep(10)
+            continue
+
+    print(f"\n    ❌ {MAX_RETRIES}회 재시도 실패", end="")
+    return []
 
 
-def process_item(raw: dict, sido: str, sigungu: str) -> dict:
-    """API 응답 항목 → 정리된 딕셔너리"""
-    spc1 = float(raw.get("spc1") or 0)  # 공급면적 m²
-    spc2 = float(raw.get("spc2") or 0)  # 전용면적 m²
+def process_item(raw, sido, sigungu):
+    spc1 = float(raw.get("spc1") or 0)
+    spc2 = float(raw.get("spc2") or 0)
     area_py = round(spc1 / 3.3058, 2) if spc1 > 0 else 0
     price = parse_price(raw.get("hanPrc", ""))
     price_per_py = round(price / area_py) if area_py > 0 else 0
@@ -278,8 +254,8 @@ def process_item(raw: dict, sido: str, sigungu: str) -> dict:
 # 메인 수집
 # ──────────────────────────────────────────────
 
-def collect(target_sido=None, target_gu=None, trade_type=DEFAULT_TRADE,
-            rlet_types=DEFAULT_TYPES):
+def collect(session, target_sido=None, target_gu=None,
+            trade_type=DEFAULT_TRADE, rlet_types=DEFAULT_TYPES):
     all_items = []
     seen_ids = set()
 
@@ -307,7 +283,7 @@ def collect(target_sido=None, target_gu=None, trade_type=DEFAULT_TRADE,
         for gu_name, coords in targets.items():
             print(f"\n  🔍 {sido} {gu_name} ...", end=" ", flush=True)
 
-            raw_items = fetch_articles(coords, rlet_types, trade_type)
+            raw_items = fetch_articles(session, coords, rlet_types, trade_type)
 
             count = 0
             for raw in raw_items:
@@ -318,12 +294,14 @@ def collect(target_sido=None, target_gu=None, trade_type=DEFAULT_TRADE,
                     count += 1
 
             print(f"✅ {count}건 (누적 {len(all_items)}건)")
+
+            # 요청 간 대기
             time.sleep(REQUEST_DELAY)
 
     return all_items
 
 
-def save_json(items: list, output_path: str = "data/commercial.json"):
+def save_json(items, output_path="data/commercial.json"):
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     items.sort(key=lambda x: x.get("pricePerPy", 0))
 
@@ -338,19 +316,14 @@ def save_json(items: list, output_path: str = "data/commercial.json"):
         json.dump(output, f, ensure_ascii=False, indent=2)
 
     print(f"\n💾 저장 완료: {output_path} ({len(items)}건)")
-    return output_path
 
 
 def git_push():
-    """수집 후 자동 git add → commit → push"""
     try:
         subprocess.run(["git", "add", "data/commercial.json"], check=True)
         msg = f"📊 매물 업데이트 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        result = subprocess.run(
-            ["git", "diff", "--staged", "--quiet"],
-            capture_output=True,
-        )
-        if result.returncode != 0:  # 변경사항 있음
+        result = subprocess.run(["git", "diff", "--staged", "--quiet"], capture_output=True)
+        if result.returncode != 0:
             subprocess.run(["git", "commit", "-m", msg], check=True)
             subprocess.run(["git", "push"], check=True)
             print("✅ git push 완료!")
@@ -362,43 +335,32 @@ def git_push():
         print("⚠ git이 설치되어 있지 않거나 PATH에 없습니다")
 
 
-# ──────────────────────────────────────────────
-# CLI
-# ──────────────────────────────────────────────
-
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="네이버 부동산 상업용 매물 수집기 (로컬 실행)")
-    parser.add_argument("--sido", type=str, default=None,
-                        help="시도 (서울/경기/인천, 생략시 전체)")
-    parser.add_argument("--gu", type=str, default=None,
-                        help="시군구 (강남구, 수원시 등)")
-    parser.add_argument("--trade", type=str, default="A1",
-                        help="거래유형: A1(매매), B1(전세), B2(월세)")
-    parser.add_argument("--types", type=str, default=DEFAULT_TYPES,
-                        help="매물유형 (SG:SMS:DDDGG:JWJT:LND)")
-    parser.add_argument("--output", type=str, default="data/commercial.json",
-                        help="출력 파일 경로")
-    parser.add_argument("--push", action="store_true",
-                        help="수집 후 자동 git push")
+    parser = argparse.ArgumentParser(description="네이버 부동산 상업용 매물 수집기 (로컬)")
+    parser.add_argument("--sido", type=str, default=None, help="시도 (서울/경기/인천)")
+    parser.add_argument("--gu", type=str, default=None, help="시군구 (강남구, 수원시 등)")
+    parser.add_argument("--trade", type=str, default="A1", help="A1(매매), B1(전세), B2(월세)")
+    parser.add_argument("--types", type=str, default=DEFAULT_TYPES, help="매물유형")
+    parser.add_argument("--output", type=str, default="data/commercial.json", help="출력 경로")
+    parser.add_argument("--push", action="store_true", help="수집 후 자동 git push")
     args = parser.parse_args()
 
-    print("🏢 네이버 부동산 상업용 매물 수집기 (로컬)")
+    print("🏢 네이버 부동산 상업용 매물 수집기")
     print(f"   시도: {args.sido or '전체'}")
     print(f"   시군구: {args.gu or '전체'}")
     print(f"   거래: {args.trade}")
-    print(f"   유형: {args.types}")
-    print(f"   출력: {args.output}")
-    print(f"   자동 push: {'예' if args.push else '아니오'}")
+    print(f"   요청간격: {REQUEST_DELAY}초")
     print()
 
-    items = collect(
-        target_sido=args.sido,
-        target_gu=args.gu,
-        trade_type=args.trade,
-        rlet_types=args.types,
-    )
+    # 세션 생성 (쿠키 획득)
+    session = create_session()
+    if not session:
+        print("\n❌ 세션 생성 실패. 종료합니다.")
+        sys.exit(1)
 
+    # 수집
+    items = collect(session, args.sido, args.gu, args.trade, args.types)
     save_json(items, args.output)
 
     # 통계
@@ -410,10 +372,11 @@ def main():
             type_counts[tp] = type_counts.get(tp, 0) + 1
         for tp, cnt in sorted(type_counts.items(), key=lambda x: -x[1]):
             print(f"   {tp}: {cnt}건")
-
         prices = [it["pricePerPy"] for it in items if it["pricePerPy"] > 0]
         if prices:
             print(f"   평당가 — 최저: {min(prices):,}만 / 평균: {sum(prices)//len(prices):,}만 / 최고: {max(prices):,}만")
+    else:
+        print("\n⚠ 수집된 매물이 없습니다.")
 
     # git push
     if args.push:
