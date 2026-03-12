@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 """
-네이버 부동산 상업용 매물 수집기
+네이버 부동산 상업용 매물 수집기 (로컬 실행용)
 상가(SG) · 사무실(SMS) · 건물(DDDGG) · 공장/창고(JWJT) · 토지(LND)
 
 사용법:
-  python collect_commercial.py                    # 전체 수집
-  python collect_commercial.py --sido 서울         # 서울만
-  python collect_commercial.py --sido 서울 --gu 강남구  # 서울 강남구만
-  python collect_commercial.py --trade B2          # 월세만
+  python collect_commercial.py                          # 전체 수집
+  python collect_commercial.py --sido 서울               # 서울만
+  python collect_commercial.py --sido 서울 --gu 강남구    # 서울 강남구만
+  python collect_commercial.py --trade B2                # 월세만
+  python collect_commercial.py --push                    # 수집 후 자동 git push
 
-출력: data/commercial.json
+※ 네이버 부동산 API는 한국 IP에서만 접근 가능 → 로컬(PC)에서 직접 실행
 """
 
 import requests
 import json
 import time
+import subprocess
 import sys
 import os
 from datetime import datetime
@@ -28,13 +30,23 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
+        "Chrome/131.0.0.0 Safari/537.36"
     ),
-    "Referer": "https://m.land.naver.com/",
+    "Referer": "https://new.land.naver.com/",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
 }
 
-API_URL = "https://m.land.naver.com/cluster/ajax/articleList"
-DETAIL_URL = "https://m.land.naver.com/cluster/ajax/articleDetail"
+# ── API 엔드포인트 (new.land.naver.com — 데스크탑 버전) ──
+# m.land.naver.com은 모바일 버전이고, 해외 IP 차단이 더 심함
+# new.land.naver.com/api 가 더 안정적
+API_BASE = "https://new.land.naver.com/api"
 
 # 매물유형: SG(상가), SMS(사무실), DDDGG(건물), JWJT(공장/창고), LND(토지)
 DEFAULT_TYPES = "SG:SMS:DDDGG:JWJT:LND"
@@ -43,12 +55,11 @@ DEFAULT_TYPES = "SG:SMS:DDDGG:JWJT:LND"
 DEFAULT_TRADE = "A1"
 
 # API 요청 간격 (초) — 너무 빠르면 차단됨
-REQUEST_DELAY = 1.5
+REQUEST_DELAY = 2.0
 
-# 줌 레벨 (낮을수록 넓은 범위, 높을수록 상세)
-# 전체 시도: 11~12, 시군구: 14~15
-ZOOM_WIDE = 12
-ZOOM_DETAIL = 14
+# 최대 페이지 (한 지역당)
+MAX_PAGES = 5
+PAGE_SIZE = 20
 
 # ──────────────────────────────────────────────
 # 지역 좌표 데이터
@@ -56,7 +67,6 @@ ZOOM_DETAIL = 14
 
 REGIONS = {
     "서울": {
-        "_전체": {"lat": 37.5665, "lon": 126.9780, "btm": 37.4283, "top": 37.7015, "lft": 126.7643, "rgt": 127.1839},
         "강남구": {"lat": 37.5172, "lon": 127.0473, "btm": 37.4954, "top": 37.5390, "lft": 127.0170, "rgt": 127.0776},
         "강동구": {"lat": 37.5301, "lon": 127.1238, "btm": 37.5100, "top": 37.5502, "lft": 127.1036, "rgt": 127.1440},
         "강북구": {"lat": 37.6396, "lon": 127.0255, "btm": 37.6195, "top": 37.6597, "lft": 127.0053, "rgt": 127.0457},
@@ -84,7 +94,6 @@ REGIONS = {
         "중랑구": {"lat": 37.6063, "lon": 127.0928, "btm": 37.5862, "top": 37.6264, "lft": 127.0727, "rgt": 127.1129},
     },
     "경기": {
-        "_전체": {"lat": 37.4138, "lon": 127.0183, "btm": 36.8941, "top": 38.2847, "lft": 126.3863, "rgt": 127.6742},
         "수원시": {"lat": 37.2636, "lon": 127.0286, "btm": 37.2300, "top": 37.2972, "lft": 126.9600, "rgt": 127.0972},
         "성남시": {"lat": 37.4201, "lon": 127.1265, "btm": 37.3800, "top": 37.4602, "lft": 127.0864, "rgt": 127.1666},
         "용인시": {"lat": 37.2410, "lon": 127.1775, "btm": 37.2009, "top": 37.2811, "lft": 127.1374, "rgt": 127.2176},
@@ -117,7 +126,6 @@ REGIONS = {
         "연천군": {"lat": 38.0965, "lon": 127.0748, "btm": 38.0464, "top": 38.1466, "lft": 127.0147, "rgt": 127.1349},
     },
     "인천": {
-        "_전체": {"lat": 37.4563, "lon": 126.7052, "btm": 37.3500, "top": 37.5920, "lft": 126.3500, "rgt": 126.8100},
         "중구": {"lat": 37.4736, "lon": 126.6214, "btm": 37.4535, "top": 37.4937, "lft": 126.6013, "rgt": 126.6415},
         "동구": {"lat": 37.4736, "lon": 126.6432, "btm": 37.4535, "top": 37.4937, "lft": 126.6231, "rgt": 126.6633},
         "미추홀구": {"lat": 37.4429, "lon": 126.6503, "btm": 37.4228, "top": 37.4630, "lft": 126.6302, "rgt": 126.6704},
@@ -153,29 +161,86 @@ def parse_price(s: str) -> int:
 
 
 def fetch_articles(coords: dict, rlet_types: str = DEFAULT_TYPES,
-                   trade_type: str = DEFAULT_TRADE, zoom: int = ZOOM_DETAIL) -> list:
+                   trade_type: str = DEFAULT_TRADE) -> list:
     """특정 좌표 범위의 매물 목록 조회"""
+    all_items = []
+
+    for page in range(1, MAX_PAGES + 1):
+        params = {
+            "rletTpCd": rlet_types,
+            "tradTpCd": trade_type,
+            "z": "14",
+            "lat": str(coords["lat"]),
+            "lon": str(coords["lon"]),
+            "btm": str(coords["btm"]),
+            "lft": str(coords["lft"]),
+            "top": str(coords["top"]),
+            "rgt": str(coords["rgt"]),
+            "spcMin": "",
+            "spcMax": "",
+            "showR0": "",
+            "page": str(page),
+        }
+        try:
+            res = requests.get(
+                f"{API_BASE}/articles",
+                params=params,
+                headers=HEADERS,
+                timeout=15,
+            )
+            res.raise_for_status()
+            data = res.json()
+            items = data.get("body", [])
+
+            if not items:
+                break
+
+            all_items.extend(items)
+
+            # 다음 페이지 없으면 종료
+            if len(items) < PAGE_SIZE:
+                break
+
+            time.sleep(0.5)
+
+        except requests.exceptions.ConnectionError:
+            # new.land 안 되면 m.land로 폴백
+            return fetch_articles_mobile(coords, rlet_types, trade_type)
+        except Exception as e:
+            print(f"\n    ⚠ API 오류 (page {page}): {e}")
+            break
+
+    return all_items
+
+
+def fetch_articles_mobile(coords: dict, rlet_types: str, trade_type: str) -> list:
+    """모바일 API 폴백 (m.land.naver.com)"""
+    mobile_headers = {**HEADERS, "Referer": "https://m.land.naver.com/"}
     params = {
         "rletTpCd": rlet_types,
         "tradTpCd": trade_type,
-        "z": str(zoom),
+        "z": "14",
         "lat": str(coords["lat"]),
         "lon": str(coords["lon"]),
         "btm": str(coords["btm"]),
         "lft": str(coords["lft"]),
         "top": str(coords["top"]),
         "rgt": str(coords["rgt"]),
-        "spcMin": "0",
-        "spcMax": "900000000",
+        "spcMin": "",
+        "spcMax": "",
         "showR0": "",
     }
     try:
-        res = requests.get(API_URL, params=params, headers=HEADERS, timeout=15)
+        res = requests.get(
+            "https://m.land.naver.com/cluster/ajax/articleList",
+            params=params,
+            headers=mobile_headers,
+            timeout=15,
+        )
         res.raise_for_status()
-        data = res.json()
-        return data.get("body", [])
+        return res.json().get("body", [])
     except Exception as e:
-        print(f"  ⚠ API 오류: {e}")
+        print(f"\n    ⚠ 모바일 API도 실패: {e}")
         return []
 
 
@@ -210,16 +275,14 @@ def process_item(raw: dict, sido: str, sigungu: str) -> dict:
 
 
 # ──────────────────────────────────────────────
-# 메인 수집 로직
+# 메인 수집
 # ──────────────────────────────────────────────
 
 def collect(target_sido=None, target_gu=None, trade_type=DEFAULT_TRADE,
             rlet_types=DEFAULT_TYPES):
-    """매물 수집 메인 함수"""
     all_items = []
-    seen_ids = set()  # 중복 제거용
+    seen_ids = set()
 
-    # 수집 대상 결정
     sidos = [target_sido] if target_sido else list(REGIONS.keys())
 
     for sido in sidos:
@@ -228,17 +291,14 @@ def collect(target_sido=None, target_gu=None, trade_type=DEFAULT_TRADE,
             continue
 
         regions = REGIONS[sido]
-
         if target_gu:
-            # 특정 구만
             if target_gu in regions:
                 targets = {target_gu: regions[target_gu]}
             else:
                 print(f"⚠ {sido}에 {target_gu} 없음")
                 continue
         else:
-            # _전체 제외, 개별 시군구 전부 순회
-            targets = {k: v for k, v in regions.items() if not k.startswith("_")}
+            targets = regions
 
         print(f"\n{'='*50}")
         print(f"📍 {sido} — {len(targets)}개 시군구 수집 시작")
@@ -264,10 +324,7 @@ def collect(target_sido=None, target_gu=None, trade_type=DEFAULT_TRADE,
 
 
 def save_json(items: list, output_path: str = "data/commercial.json"):
-    """결과를 JSON 파일로 저장"""
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
-    # 평당가 오름차순 정렬 (기본)
     items.sort(key=lambda x: x.get("pricePerPy", 0))
 
     output = {
@@ -284,13 +341,34 @@ def save_json(items: list, output_path: str = "data/commercial.json"):
     return output_path
 
 
+def git_push():
+    """수집 후 자동 git add → commit → push"""
+    try:
+        subprocess.run(["git", "add", "data/commercial.json"], check=True)
+        msg = f"📊 매물 업데이트 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        result = subprocess.run(
+            ["git", "diff", "--staged", "--quiet"],
+            capture_output=True,
+        )
+        if result.returncode != 0:  # 변경사항 있음
+            subprocess.run(["git", "commit", "-m", msg], check=True)
+            subprocess.run(["git", "push"], check=True)
+            print("✅ git push 완료!")
+        else:
+            print("ℹ️  변경사항 없어서 push 생략")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠ git 오류: {e}")
+    except FileNotFoundError:
+        print("⚠ git이 설치되어 있지 않거나 PATH에 없습니다")
+
+
 # ──────────────────────────────────────────────
 # CLI
 # ──────────────────────────────────────────────
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="네이버 부동산 상업용 매물 수집기")
+    parser = argparse.ArgumentParser(description="네이버 부동산 상업용 매물 수집기 (로컬 실행)")
     parser.add_argument("--sido", type=str, default=None,
                         help="시도 (서울/경기/인천, 생략시 전체)")
     parser.add_argument("--gu", type=str, default=None,
@@ -301,14 +379,18 @@ def main():
                         help="매물유형 (SG:SMS:DDDGG:JWJT:LND)")
     parser.add_argument("--output", type=str, default="data/commercial.json",
                         help="출력 파일 경로")
+    parser.add_argument("--push", action="store_true",
+                        help="수집 후 자동 git push")
     args = parser.parse_args()
 
-    print("🏢 네이버 부동산 상업용 매물 수집기")
+    print("🏢 네이버 부동산 상업용 매물 수집기 (로컬)")
     print(f"   시도: {args.sido or '전체'}")
     print(f"   시군구: {args.gu or '전체'}")
     print(f"   거래: {args.trade}")
     print(f"   유형: {args.types}")
     print(f"   출력: {args.output}")
+    print(f"   자동 push: {'예' if args.push else '아니오'}")
+    print()
 
     items = collect(
         target_sido=args.sido,
@@ -317,14 +399,9 @@ def main():
         rlet_types=args.types,
     )
 
-    if items:
-        save_json(items, args.output)
-    else:
-        print("\n⚠ 수집된 매물이 없습니다.")
-        # 빈 JSON이라도 저장 (Actions에서 에러 방지)
-        save_json([], args.output)
+    save_json(items, args.output)
 
-    # 간단한 통계
+    # 통계
     if items:
         print(f"\n📊 수집 통계:")
         type_counts = {}
@@ -337,6 +414,11 @@ def main():
         prices = [it["pricePerPy"] for it in items if it["pricePerPy"] > 0]
         if prices:
             print(f"   평당가 — 최저: {min(prices):,}만 / 평균: {sum(prices)//len(prices):,}만 / 최고: {max(prices):,}만")
+
+    # git push
+    if args.push:
+        print()
+        git_push()
 
 
 if __name__ == "__main__":
