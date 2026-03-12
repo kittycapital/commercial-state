@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>상업용 부동산 탐색기 — 평당가 기준 정렬</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0a;
+  --bg2: #0e0e10;
+  --bg3: #131316;
+  --border: #1c1c1f;
+  --text: #e4e4e7;
+  --text2: #a1a1aa;
+  --text3: #52525b;
+  --text4: #3f3f46;
+  --accent: #f97316;
+  --blue: #60a5fa;
+  --green: #22c55e;
+  --yellow: #fbbf24;
+  --red: #ef4444;
+  --purple: #a855f7;
+  --gray: #6b7280;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: 'Noto Sans KR', sans-serif;
+  min-height: 100vh;
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Header ── */
+.header {
+  background: linear-gradient(180deg, #0f0f12, var(--bg));
+  border-bottom: 1px solid var(--border);
+  padding: 14px 20px 12px;
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.header-left { display: flex; align-items: center; gap: 10px; }
+.header-icon {
+  width: 30px; height: 30px; border-radius: 6px;
+  background: linear-gradient(135deg, var(--accent), var(--blue));
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+}
+.header h1 { font-size: 15px; font-weight: 700; color: #fafafa; }
+.header .sub { font-size: 10px; color: var(--text4); margin-top: 1px; }
+.status-badge {
+  padding: 3px 8px; border-radius: 4px; font-size: 9px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+.status-live { background: #22c55e18; color: var(--green); border: 1px solid #22c55e30; }
+.status-loading { background: #fbbf2418; color: var(--yellow); border: 1px solid #fbbf2430; }
+.status-error { background: #ef444418; color: var(--red); border: 1px solid #ef444430; }
+
+/* ── 시도 탭 ── */
+.sido-tabs {
+  display: flex; border-bottom: 1px solid var(--border); background: var(--bg2);
+}
+.sido-tab {
+  flex: 1; padding: 10px 0; border: none; cursor: pointer;
+  background: transparent; color: var(--text3); font-size: 13px; font-weight: 500;
+  font-family: 'Noto Sans KR', sans-serif;
+  border-bottom: 2px solid transparent; transition: all 0.15s;
+}
+.sido-tab.active {
+  background: var(--bg3); color: #fafafa; font-weight: 700;
+  border-bottom-color: var(--accent);
+}
+
+/* ── 시군구 ── */
+.sigungu-wrap {
+  padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--bg2);
+}
+.sigungu-list {
+  display: flex; gap: 4px; flex-wrap: wrap; max-height: 100px; overflow-y: auto;
+}
+.sg-btn {
+  padding: 4px 10px; border-radius: 5px; font-size: 11px; font-weight: 400;
+  border: 1px solid #1e1e22; background: transparent; color: var(--text3);
+  cursor: pointer; white-space: nowrap; font-family: 'Noto Sans KR', sans-serif;
+  transition: all 0.12s;
+}
+.sg-btn.active { border-color: var(--blue); background: #60a5fa10; color: var(--blue); font-weight: 600; }
+.sg-btn.all-btn { font-weight: 700; padding: 5px 14px; }
+.sg-btn.all-btn.active { border-color: var(--accent); background: #f9731612; color: var(--accent); }
+
+/* ── 필터 영역 ── */
+.filters { padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.filter-row { display: flex; gap: 16px; margin-bottom: 12px; }
+.filter-col { flex: 1; }
+.filter-col-sm { flex-shrink: 0; }
+.filter-label {
+  font-size: 9px; color: var(--text4); display: block; margin-bottom: 5px;
+  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.type-btns, .trade-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+.type-btn, .trade-btn {
+  padding: 4px 9px; border-radius: 5px; font-size: 10px; font-weight: 600;
+  border: 1px solid #1e1e22; background: transparent; cursor: pointer;
+  font-family: 'Noto Sans KR', sans-serif; transition: all 0.12s;
+}
+.type-btn { color: var(--text4); }
+.type-btn.active-sg { border-color: #f9731660; background: #f9731612; color: var(--accent); }
+.type-btn.active-sms { border-color: #3b82f660; background: #3b82f612; color: var(--blue); }
+.type-btn.active-dddgg { border-color: #a855f760; background: #a855f712; color: var(--purple); }
+.type-btn.active-jwjt { border-color: #6b728060; background: #6b728012; color: var(--gray); }
+.type-btn.active-lnd { border-color: #22c55e60; background: #22c55e12; color: var(--green); }
+.trade-btn { color: var(--text4); }
+.trade-btn.active { border-color: #60a5fa60; background: #60a5fa10; color: var(--blue); }
+
+/* ── 슬라이더 ── */
+.slider-wrap { display: flex; gap: 14px; align-items: center; }
+.slider-col { flex: 1; }
+.slider-header { display: flex; justify-content: space-between; margin-bottom: 3px; }
+.slider-label { font-size: 9px; color: var(--text3); }
+.slider-value { font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.slider-value.min-val { color: var(--yellow); }
+.slider-value.max-val { color: var(--blue); }
+.slider-unit { font-size: 9px; font-weight: 400; color: var(--text3); }
+.slider-sep { color: #1e1e22; font-size: 16px; margin-top: 10px; }
+input[type="range"] {
+  width: 100%; appearance: none; height: 4px; border-radius: 2px; cursor: pointer;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: #fafafa; border: 2px solid var(--accent); cursor: pointer;
+  box-shadow: 0 0 4px rgba(249,115,22,0.2);
+}
+
+/* ── 통계 바 ── */
+.stats-bar {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--border); background: #0b0b0e;
+}
+.stat-cell { padding: 7px 0; text-align: center; border-right: 1px solid var(--border); }
+.stat-cell:last-child { border-right: none; }
+.stat-label { font-size: 8px; color: var(--text4); font-weight: 600; margin-bottom: 1px; }
+.stat-value { font-size: 12px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+
+/* ── 정렬 바 ── */
+.sort-bar {
+  padding: 7px 20px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.sort-info { font-size: 11px; color: var(--text3); }
+.sort-info strong { color: #fafafa; }
+.sort-btns { display: flex; gap: 3px; }
+.sort-btn {
+  padding: 3px 7px; border-radius: 3px; font-size: 9px; font-weight: 600;
+  border: 1px solid #1e1e22; background: transparent; color: var(--text4);
+  cursor: pointer; font-family: 'Noto Sans KR', sans-serif;
+}
+.sort-btn.active { border-color: var(--accent); background: #f9731610; color: var(--accent); }
+
+/* ── 테이블 ── */
+.table-header {
+  display: grid; padding: 5px 20px; border-bottom: 1px solid var(--border);
+  font-size: 8px; font-weight: 700; color: #27272a;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  position: sticky; top: 0; background: var(--bg); z-index: 10;
+}
+.table-header.wide { grid-template-columns: 48px 1fr 56px 56px 76px 72px; }
+.table-header.narrow { grid-template-columns: 48px 1fr 56px 76px 72px; }
+.table-body { max-height: calc(100vh - 520px); overflow-y: auto; min-height: 200px; }
+
+.row {
+  display: grid; padding: 8px 20px; border-bottom: 1px solid #0e0e12;
+  font-size: 11px; cursor: pointer; transition: background 0.1s;
+}
+.row.wide { grid-template-columns: 48px 1fr 56px 56px 76px 72px; }
+.row.narrow { grid-template-columns: 48px 1fr 56px 76px 72px; }
+.row:hover { background: #151520 !important; }
+.row.even { background: transparent; }
+.row.odd { background: #0b0b0e; }
+
+.type-badge {
+  padding: 2px 5px; border-radius: 3px; font-size: 8px; font-weight: 700;
+  display: inline-block;
+}
+.badge-SG { background: #f9731612; color: var(--accent); border: 1px solid #f9731622; }
+.badge-SMS { background: #3b82f612; color: var(--blue); border: 1px solid #3b82f622; }
+.badge-DDDGG { background: #a855f712; color: var(--purple); border: 1px solid #a855f722; }
+.badge-JWJT { background: #6b728012; color: var(--gray); border: 1px solid #6b728022; }
+.badge-LND { background: #22c55e12; color: var(--green); border: 1px solid #22c55e22; }
+
+.cell { align-self: center; }
+.cell-name { color: #fafafa; font-weight: 600; font-size: 11.5px; line-height: 1.2; }
+.cell-desc { font-size: 9px; color: var(--accent); margin-top: 1px; }
+.cell-region { font-size: 9px; color: var(--text3); }
+.cell-num { text-align: right; color: var(--text2); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+.cell-price { text-align: right; color: #d4d4d8; font-weight: 600; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
+.cell-pppy { text-align: right; font-weight: 700; color: var(--yellow); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.cell-pppy .unit { font-size: 8px; font-weight: 400; }
+
+.detail-row {
+  padding: 10px 20px 10px 68px; background: #0e0e16;
+  border-bottom: 1px solid var(--border);
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px;
+  font-size: 10px; color: var(--text3);
+}
+.detail-row .dl { color: #27272a; }
+.detail-row .dv { color: var(--text2); }
+.detail-row a { color: var(--blue); text-decoration: none; }
+.detail-row a:hover { text-decoration: underline; }
+
+.empty { padding: 48px; text-align: center; color: #27272a; font-size: 12px; }
+
+/* ── Footer ── */
+.footer {
+  padding: 12px 20px; border-top: 1px solid var(--border); background: #0b0b0e;
+  font-size: 9px; color: #27272a; text-align: center;
+}
+
+/* ── Share Bar (HerdVibe Standard) ── */
+.share-bar {
+  display: flex; justify-content: center; gap: 8px;
+  padding: 10px 20px; border-top: 1px solid var(--border);
+  background: var(--bg2);
+}
+.share-btn {
+  width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg3); cursor: pointer; display: flex; align-items: center;
+  justify-content: center; font-size: 13px; transition: all 0.15s;
+}
+.share-btn:hover { background: #1e1e22; border-color: var(--text3); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="header-icon">🏢</div>
+    <div>
+      <h1>상업용 부동산 탐색기</h1>
+      <div class="sub">면적 필터 + 평당가 정렬 · 서울/경기/인천</div>
+    </div>
+  </div>
+  <div id="statusBadge" class="status-badge status-loading">로딩중...</div>
+</div>
+
+<!-- 시도 탭 -->
+<div class="sido-tabs" id="sidoTabs"></div>
+
+<!-- 시군구 -->
+<div class="sigungu-wrap">
+  <div class="sigungu-list" id="sigunguList"></div>
+</div>
+
+<!-- 필터 -->
+<div class="filters">
+  <div class="filter-row">
+    <div class="filter-col">
+      <label class="filter-label">매물 유형</label>
+      <div class="type-btns" id="typeBtns"></div>
+    </div>
+    <div class="filter-col-sm">
+      <label class="filter-label">거래</label>
+      <div class="trade-btns" id="tradeBtns"></div>
+    </div>
+  </div>
+  <label class="filter-label">면적 (평)</label>
+  <div class="slider-wrap">
+    <div class="slider-col">
+      <div class="slider-header">
+        <span class="slider-label">최소</span>
+        <span class="slider-value min-val"><span id="minPyVal">0</span><span class="slider-unit">평</span></span>
+      </div>
+      <input type="range" id="minPySlider" min="0" max="500" step="5" value="0">
+    </div>
+    <span class="slider-sep">–</span>
+    <div class="slider-col">
+      <div class="slider-header">
+        <span class="slider-label">최대</span>
+        <span class="slider-value max-val"><span id="maxPyVal">1000</span><span class="slider-unit">평</span></span>
+      </div>
+      <input type="range" id="maxPySlider" min="10" max="1000" step="10" value="1000">
+    </div>
+  </div>
+</div>
+
+<!-- 통계 -->
+<div class="stats-bar" id="statsBar"></div>
+
+<!-- 정렬 -->
+<div class="sort-bar">
+  <div class="sort-info" id="sortInfo"></div>
+  <div class="sort-btns" id="sortBtns"></div>
+</div>
+
+<!-- 테이블 -->
+<div class="table-header" id="tableHeader"></div>
+<div class="table-body" id="tableBody"></div>
+
+<!-- Share Bar -->
+<div class="share-bar" id="shareBar"></div>
+
+<!-- Footer -->
+<div class="footer" id="footer"></div>
+
+<script>
+// ══════════════════════════════════════════════
+// 데이터 & 상태
+// ══════════════════════════════════════════════
+
+const DATA_URL = "data/commercial.json";
+
+const SIDOS = ["서울", "경기", "인천"];
+const SIGUNGU_MAP = {
+  서울: ["전체","강남구","강동구","강북구","강서구","관악구","광진구","구로구","금천구","노원구","도봉구","동대문구","동작구","마포구","서대문구","서초구","성동구","성북구","송파구","양천구","영등포구","용산구","은평구","종로구","중구","중랑구"],
+  경기: ["전체","수원시","성남시","용인시","고양시","부천시","안양시","안산시","화성시","평택시","시흥시","파주시","김포시","광명시","광주시","하남시","군포시","의왕시","오산시","이천시","양주시","구리시","남양주시","의정부시","동두천시","안성시","포천시","양평군","여주시","가평군","연천군"],
+  인천: ["전체","중구","동구","미추홀구","연수구","남동구","부평구","계양구","서구","강화군","옹진군"],
+};
+
+const TYPES = [
+  { code: "SG", label: "상가", icon: "🏪" },
+  { code: "SMS", label: "사무실", icon: "🏢" },
+  { code: "DDDGG", label: "건물", icon: "🏗" },
+  { code: "JWJT", label: "공장/창고", icon: "🏭" },
+  { code: "LND", label: "토지", icon: "🌍" },
+];
+
+const TYPE_NAMES = { SG: "상가", SMS: "사무실", DDDGG: "건물", JWJT: "공장/창고", LND: "토지" };
+const TRADE_NAMES = { A1: "매매", B1: "전세", B2: "월세" };
+
+let rawData = [];
+let state = {
+  sido: "서울",
+  sigungu: "전체",
+  types: new Set(["SG","SMS","DDDGG","JWJT","LND"]),
+  trade: "A1",
+  minPy: 0,
+  maxPy: 1000,
+  sortKey: "pricePerPy",
+  sortDir: "asc",
+  expandedId: null,
+};
+
+// ══════════════════════════════════════════════
+// 데이터 로드
+// ══════════════════════════════════════════════
+
+async function loadData() {
+  const badge = document.getElementById("statusBadge");
+  try {
+    const res = await fetch(DATA_URL + "?t=" + Date.now());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    rawData = json.items || [];
+    badge.className = "status-badge status-live";
+    badge.textContent = `LIVE · ${json.count || 0}건 · ${json.updated || ""}`;
+    render();
+  } catch (e) {
+    console.warn("JSON 로드 실패, 데모 모드:", e);
+    rawData = generateDemo();
+    badge.className = "status-badge status-loading";
+    badge.textContent = "DEMO · JSON 미발견";
+    render();
+  }
+}
+
+function generateDemo() {
+  const names = {SG:["역세권 상가","코너 상가","대로변 상가","신축 상가","1층 상가","지하 상가"],SMS:["역세권 사무실","신축 오피스","리모델링","복층 사무실"],DDDGG:["수익형 빌딩","근생 건물","상업용 빌딩"],JWJT:["물류 창고","소형 공장","지식산업센터"],LND:["상업지","대로변 토지","나대지"]};
+  const descs = ["급매","협의가능","즉시입주","투자적합","","",""];
+  const data = [];
+  let id = 1000;
+  for (const sido of SIDOS) {
+    const gus = SIGUNGU_MAP[sido].filter(g => g !== "전체");
+    for (const gu of gus) {
+      for (const type of TYPES) {
+        const cnt = 1 + Math.floor(Math.random() * 3);
+        const ns = names[type.code] || names.SG;
+        for (let i = 0; i < cnt; i++) {
+          let areaM2 = type.code === "LND" ? 80+Math.random()*2000 : type.code === "DDDGG" ? 100+Math.random()*1500 : type.code === "JWJT" ? 150+Math.random()*3000 : 15+Math.random()*300;
+          areaM2 = Math.round(areaM2*100)/100;
+          const rm = sido==="서울"?1.5:sido==="인천"?0.7:1;
+          let pb = areaM2*(1000+Math.random()*4000)*rm;
+          const price = Math.round(pb/100)*100;
+          const areaPy = Math.round(areaM2/3.3058*100)/100;
+          data.push({
+            id: String(++id), name: ns[i%ns.length],
+            type: type.code, typeName: type.label,
+            sido, sigungu: gu, areaM2, areaPy, price,
+            pricePerPy: Math.round(price/areaPy),
+            floor: type.code==="LND"?"-":`${1+Math.floor(Math.random()*10)}층`,
+            desc: descs[Math.floor(Math.random()*descs.length)],
+            tradeTp: "매매",
+            url: `https://new.land.naver.com/articles/${id}`,
+          });
+        }
+      }
+    }
+  }
+  return data;
+}
+
+// ══════════════════════════════════════════════
+// 필터 & 정렬
+// ══════════════════════════════════════════════
+
+function getFiltered() {
+  return rawData
+    .filter(d => d.sido === state.sido)
+    .filter(d => state.sigungu === "전체" || d.sigungu === state.sigungu)
+    .filter(d => state.types.has(d.type))
+    .filter(d => d.areaPy >= state.minPy && d.areaPy <= state.maxPy)
+    .sort((a, b) => {
+      const mul = state.sortDir === "asc" ? 1 : -1;
+      return ((a[state.sortKey] || 0) - (b[state.sortKey] || 0)) * mul;
+    });
+}
+
+function fmtPrice(m) {
+  if (!m) return "–";
+  if (m >= 10000) {
+    const e = Math.floor(m / 10000), r = m % 10000;
+    return r > 0 ? `${e}억${r.toLocaleString()}` : `${e}억`;
+  }
+  return m.toLocaleString() + "만";
+}
+
+// ══════════════════════════════════════════════
+// 렌더링
+// ══════════════════════════════════════════════
+
+function render() {
+  renderSidoTabs();
+  renderSigungu();
+  renderTypeButtons();
+  renderTradeButtons();
+  renderSliders();
+
+  const filtered = getFiltered();
+  renderStats(filtered);
+  renderSortBar();
+  renderTable(filtered);
+  renderFooter();
+  renderShareBar();
+}
+
+function renderSidoTabs() {
+  const el = document.getElementById("sidoTabs");
+  el.innerHTML = SIDOS.map(s =>
+    `<button class="sido-tab${s===state.sido?" active":""}" onclick="setSido('${s}')">${s}</button>`
+  ).join("");
+}
+
+function renderSigungu() {
+  const el = document.getElementById("sigunguList");
+  const list = SIGUNGU_MAP[state.sido] || [];
+  el.innerHTML = list.map(sg => {
+    const isAll = sg === "전체";
+    const on = state.sigungu === sg;
+    const cls = `sg-btn${isAll?" all-btn":""}${on?" active":""}`;
+    return `<button class="${cls}" onclick="setSigungu('${sg}')">${isAll ? "🔍 "+state.sido+" 전체" : sg}</button>`;
+  }).join("");
+}
+
+function renderTypeButtons() {
+  const el = document.getElementById("typeBtns");
+  el.innerHTML = TYPES.map(t => {
+    const on = state.types.has(t.code);
+    const cls = on ? `active-${t.code.toLowerCase()}` : "";
+    return `<button class="type-btn ${cls}" onclick="toggleType('${t.code}')">${t.icon} ${t.label}</button>`;
+  }).join("");
+}
+
+function renderTradeButtons() {
+  const el = document.getElementById("tradeBtns");
+  el.innerHTML = Object.entries(TRADE_NAMES).map(([code, label]) =>
+    `<button class="trade-btn${state.trade===code?" active":""}" onclick="setTrade('${code}')">${label}</button>`
+  ).join("");
+}
+
+function renderSliders() {
+  const minS = document.getElementById("minPySlider");
+  const maxS = document.getElementById("maxPySlider");
+  document.getElementById("minPyVal").textContent = state.minPy;
+  document.getElementById("maxPyVal").textContent = state.maxPy;
+  minS.value = state.minPy;
+  maxS.value = state.maxPy;
+  minS.style.background = `linear-gradient(to right,var(--yellow) ${state.minPy/5}%,#1a1a1e ${state.minPy/5}%)`;
+  maxS.style.background = `linear-gradient(to right,var(--blue) ${state.maxPy/10}%,#1a1a1e ${state.maxPy/10}%)`;
+}
+
+function renderStats(data) {
+  const el = document.getElementById("statsBar");
+  if (!data.length) { el.innerHTML = ""; return; }
+  const pp = data.map(d => d.pricePerPy).filter(p => p > 0);
+  const avg = pp.length ? Math.round(pp.reduce((a,b)=>a+b,0)/pp.length) : 0;
+  const mn = pp.length ? Math.min(...pp) : 0;
+  const mx = pp.length ? Math.max(...pp) : 0;
+  const cells = [
+    {l:"검색결과",v:`${data.length}건`,c:"var(--text)"},
+    {l:"평균 평당가",v:`${avg.toLocaleString()}만`,c:"var(--yellow)"},
+    {l:"최저",v:`${mn.toLocaleString()}만`,c:"var(--green)"},
+    {l:"최고",v:`${mx.toLocaleString()}만`,c:"var(--red)"},
+  ];
+  el.innerHTML = cells.map(c =>
+    `<div class="stat-cell"><div class="stat-label">${c.l}</div><div class="stat-value" style="color:${c.c}">${c.v}</div></div>`
+  ).join("");
+}
+
+function renderSortBar() {
+  document.getElementById("sortInfo").innerHTML =
+    `<strong>${state.sido}</strong> ${state.sigungu} · ${TRADE_NAMES[state.trade]||"매매"}`;
+
+  const sorts = [{key:"pricePerPy",label:"평당가"},{key:"price",label:"총가"},{key:"areaPy",label:"면적"}];
+  document.getElementById("sortBtns").innerHTML = sorts.map(s =>
+    `<button class="sort-btn${state.sortKey===s.key?" active":""}" onclick="toggleSort('${s.key}')">${s.label}${state.sortKey===s.key?(state.sortDir==="asc"?" ▲":" ▼"):""}</button>`
+  ).join("");
+}
+
+function renderTable(data) {
+  const isWide = state.sigungu === "전체";
+  const mode = isWide ? "wide" : "narrow";
+
+  // Header
+  const hdr = document.getElementById("tableHeader");
+  hdr.className = `table-header ${mode}`;
+  hdr.innerHTML = `<div>유형</div><div>매물</div>${isWide?"<div>지역</div>":""}<div style="text-align:right">면적</div><div style="text-align:right">가격</div><div style="text-align:right">평당가</div>`;
+
+  // Body
+  const body = document.getElementById("tableBody");
+  if (!data.length) {
+    body.innerHTML = '<div class="empty">조건에 맞는 매물이 없습니다</div>';
+    return;
+  }
+
+  let html = "";
+  data.forEach((item, idx) => {
+    const expanded = state.expandedId === item.id;
+    html += `<div class="row ${mode} ${idx%2?"odd":"even"}" onclick="toggleExpand('${item.id}')" style="${expanded?"background:#12121a":""}">
+      <div class="cell"><span class="type-badge badge-${item.type}">${item.typeName}</span></div>
+      <div class="cell"><div class="cell-name">${esc(item.name)}</div>${item.desc?`<div class="cell-desc">${esc(item.desc)}</div>`:""}</div>
+      ${isWide?`<div class="cell cell-region">${esc(item.sigungu)}</div>`:""}
+      <div class="cell cell-num">${item.areaPy.toFixed(1)}</div>
+      <div class="cell cell-price">${fmtPrice(item.price)}</div>
+      <div class="cell cell-pppy">${item.pricePerPy.toLocaleString()}<span class="unit">만</span></div>
+    </div>`;
+
+    if (expanded) {
+      html += `<div class="detail-row">
+        <div><span class="dl">면적 </span><span class="dv">${item.areaM2?.toFixed(1)||"-"}m²</span></div>
+        <div><span class="dl">평수 </span><span class="dv">${item.areaPy?.toFixed(1)||"-"}평</span></div>
+        <div><span class="dl">층수 </span><span class="dv">${esc(item.floor||"-")}</span></div>
+        <div><span class="dl">확인 </span><span class="dv">${esc(item.cfmDate||"-")}</span></div>
+        <div style="grid-column:1/-1">
+          <span class="dv">${esc(item.sido)} ${esc(item.sigungu)}</span>
+          <span style="margin:0 8px;color:#1a1a1e">|</span>
+          <a href="${item.url||"#"}" target="_blank" rel="noopener">네이버 부동산에서 보기 ↗</a>
+        </div>
+      </div>`;
+    }
+  });
+  body.innerHTML = html;
+}
+
+function renderFooter() {
+  document.getElementById("footer").textContent =
+    `데이터: GitHub Actions 자동 수집 · 네이버 부동산 API · ${new Date().getFullYear()}`;
+}
+
+function renderShareBar() {
+  const url = encodeURIComponent(location.href);
+  const title = encodeURIComponent("상업용 부동산 탐색기 — 평당가 기준 정렬");
+  document.getElementById("shareBar").innerHTML = `
+    <button class="share-btn" onclick="window.open('https://twitter.com/intent/tweet?url=${url}&text=${title}','_blank')" title="X">𝕏</button>
+    <button class="share-btn" onclick="shareKakao()" title="KakaoTalk">💬</button>
+    <button class="share-btn" onclick="window.open('https://t.me/share/url?url=${url}&text=${title}','_blank')" title="Telegram">✈️</button>
+    <button class="share-btn" onclick="copyLink()" title="링크 복사">🔗</button>
+  `;
+}
+
+function esc(s) { return String(s||"").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+// ══════════════════════════════════════════════
+// 이벤트
+// ══════════════════════════════════════════════
+
+function setSido(s) { state.sido = s; state.sigungu = "전체"; state.expandedId = null; render(); }
+function setSigungu(sg) { state.sigungu = sg; state.expandedId = null; render(); }
+function toggleType(code) {
+  state.types.has(code) ? state.types.delete(code) : state.types.add(code);
+  render();
+}
+function setTrade(code) { state.trade = code; render(); }
+function toggleSort(key) {
+  if (state.sortKey === key) state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+  else { state.sortKey = key; state.sortDir = "asc"; }
+  render();
+}
+function toggleExpand(id) { state.expandedId = state.expandedId === id ? null : id; render(); }
+
+// 슬라이더
+document.getElementById("minPySlider").addEventListener("input", function() {
+  state.minPy = Math.min(+this.value, state.maxPy); render();
+});
+document.getElementById("maxPySlider").addEventListener("input", function() {
+  state.maxPy = Math.max(+this.value, state.minPy); render();
+});
+
+// 공유
+function copyLink() {
+  if (navigator.clipboard) navigator.clipboard.writeText(location.href);
+  else {
+    // iframe용 postMessage relay
+    window.parent.postMessage({ type: "herdvibe-copy", text: location.href }, "*");
+  }
+}
+function shareKakao() {
+  if (window.Kakao && Kakao.isInitialized()) {
+    Kakao.Share.sendDefault({
+      objectType: "feed",
+      content: { title: "상업용 부동산 탐색기", description: "평당가 기준 정렬 · 서울/경기/인천", imageUrl: "", link: { mobileWebUrl: location.href, webUrl: location.href } },
+    });
+  } else {
+    window.open(`https://story.kakao.com/share?url=${encodeURIComponent(location.href)}`, "_blank");
+  }
+}
+
+// ══════════════════════════════════════════════
+// 초기화
+// ══════════════════════════════════════════════
+
+// Kakao SDK
+(function() {
+  const s = document.createElement("script");
+  s.src = "https://t1.kakaocdn.net/kakao_js_sdk/2.6.0/kakao.min.js";
+  s.onload = function() { Kakao.init("a43ed7b39fac35458f4f9df925a279b5"); };
+  document.head.appendChild(s);
+})();
+
+// iframe 높이 동기화 (HerdVibe 표준 — debounced, 500ms, 5px threshold)
+let lastHeight = 0;
+let heightTimer = null;
+function syncHeight() {
+  clearTimeout(heightTimer);
+  heightTimer = setTimeout(function() {
+    const h = document.documentElement.scrollHeight;
+    if (Math.abs(h - lastHeight) > 5) {
+      lastHeight = h;
+      window.parent.postMessage({ type: "herdvibe-height", height: h }, "*");
+    }
+  }, 500);
+}
+new ResizeObserver(syncHeight).observe(document.body);
+
+// 데이터 로드
+loadData();
+</script>
+</body>
+</html>
